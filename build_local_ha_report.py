@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from PIL import Image
+
 from gmail_ha_actions import fetch_ha_details
 from ha_pdf import create_action_pdf
 from ha_walk_excel import create_walk_excel
@@ -25,6 +27,19 @@ SUGGESTED_FILENAME = "photo_mapping.suggested.json"
 class PhotoPair:
     before: Path
     after: Path
+    method: str = "timestamp-split"
+    reason: str = "Fallback split: sorted photos are treated as all BEFORE photos followed by all AFTER photos."
+
+
+@dataclass(frozen=True)
+class PhotoProfile:
+    path: Path
+    timestamp: int
+    green_cover: float
+    yellow_barrier: float
+    generator: float
+    blue_left: float
+    block_storage: float
 
 
 def detect_walk_type(date: str) -> str:
@@ -55,6 +70,13 @@ def collect_photos(job_dir: Path) -> list[Path]:
     return sorted(photos, key=sort_key)
 
 
+def photo_timestamp(path: Path) -> int:
+    match = re.search(r"(\d{8})_(\d{6})", path.stem)
+    if match:
+        return int(match.group(1) + match.group(2))
+    return 0
+
+
 def split_even_photos(photos: list[Path], issue_count: int) -> tuple[list[Path], list[Path]]:
     expected = issue_count * 2
     if len(photos) != expected:
@@ -63,6 +85,99 @@ def split_even_photos(photos: list[Path], issue_count: int) -> tuple[list[Path],
             f"but {issue_count} issue(s) require {expected} photo(s)."
         )
     return photos[:issue_count], photos[issue_count:]
+
+
+def image_ratio(pixels: list[tuple[int, int, int]], predicate: Any) -> float:
+    if not pixels:
+        return 0.0
+    return sum(1 for red, green, blue in pixels if predicate(red, green, blue)) / len(pixels)
+
+
+def image_box_ratio(image: Image.Image, x0: float, x1: float, y0: float, y1: float, predicate: Any) -> float:
+    width, height = image.size
+    left = max(0, min(width, int(width * x0)))
+    right = max(left + 1, min(width, int(width * x1)))
+    top = max(0, min(height, int(height * y0)))
+    bottom = max(top + 1, min(height, int(height * y1)))
+    total = 0
+    matched = 0
+    for y in range(top, bottom):
+        for x in range(left, right):
+            total += 1
+            if predicate(*image.getpixel((x, y))):
+                matched += 1
+    return matched / total if total else 0.0
+
+
+def build_photo_profile(path: Path) -> PhotoProfile:
+    image = Image.open(path).convert("RGB")
+    image.thumbnail((320, 240))
+    data = image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
+    pixels = list(data)
+
+    green = image_ratio(
+        pixels,
+        lambda red, green, blue: green > 70 and green > red * 1.18 and green > blue * 1.08 and green - red > 20,
+    )
+    yellow = image_ratio(
+        pixels,
+        lambda red, green, blue: red > 130 and green > 105 and blue < 110 and abs(red - green) < 90,
+    )
+    red_area = image_ratio(
+        pixels,
+        lambda red, green, blue: red > 115 and red > green * 1.35 and red > blue * 1.35,
+    )
+    black = image_ratio(pixels, lambda red, green, blue: red < 75 and green < 75 and blue < 75)
+    brown = image_ratio(
+        pixels,
+        lambda red, green, blue: red > 80 and green > 45 and blue < 90 and red > green * 1.15,
+    )
+    blue_left = image_box_ratio(
+        image,
+        0.0,
+        0.25,
+        0.0,
+        1.0,
+        lambda red, green, blue: blue > 105 and blue > red * 1.15 and blue > green * 0.85,
+    )
+
+    return PhotoProfile(
+        path=path,
+        timestamp=photo_timestamp(path),
+        green_cover=(green * 100) - (yellow * 20) - (red_area * 10),
+        yellow_barrier=(yellow * 100) + (brown * 20) - (red_area * 20),
+        generator=(red_area * 120) + (black * 30) - (yellow * 80) - (green * 80),
+        blue_left=blue_left * 100,
+        block_storage=(black * 30) + (brown * 30) - (yellow * 80) - (red_area * 40) - (green * 100),
+    )
+
+
+def issue_pairing_kind(issue: str, action: str) -> str | None:
+    text = " ".join(f"{issue} {action}".lower().split())
+    if "paving block" in text and ("cover" in text or "plastic sheet" in text):
+        return "covered-blocks"
+    if "fire extinguisher" in text and "generator" in text:
+        return "generator-extinguisher"
+    if "ladder" in text and ("safe access" in text or "string" in text):
+        return "ladder-string"
+    return None
+
+
+def top_unused(
+    profiles: list[PhotoProfile],
+    used: set[Path],
+    score_name: str,
+    count: int,
+    minimum_score: float | None = None,
+) -> list[PhotoProfile]:
+    candidates = [profile for profile in profiles if profile.path not in used]
+    candidates.sort(key=lambda profile: (getattr(profile, score_name), profile.timestamp), reverse=True)
+    selected = candidates[:count]
+    if len(selected) < count:
+        return []
+    if minimum_score is not None and any(getattr(profile, score_name) < minimum_score for profile in selected):
+        return []
+    return selected
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -94,9 +209,73 @@ def resolve_photo_reference(job_dir: Path, value: Any) -> Path:
     return candidate
 
 
-def auto_pairs(job_dir: Path, photos: list[Path], issue_count: int) -> list[PhotoPair]:
+def auto_pairs(job_dir: Path, photos: list[Path], issues: list[str], actions: list[str]) -> list[PhotoPair]:
+    issue_count = len(issues)
     before_photos, after_photos = split_even_photos(photos, issue_count)
-    return [PhotoPair(before=before_photos[index], after=after_photos[index]) for index in range(issue_count)]
+    fallback_pairs = [PhotoPair(before=before_photos[index], after=after_photos[index]) for index in range(issue_count)]
+
+    profiles = [build_photo_profile(photo) for photo in photos]
+    resolved: list[PhotoPair | None] = [None] * issue_count
+    used: set[Path] = set()
+
+    for index, (issue, action) in enumerate(zip(issues, actions)):
+        kind = issue_pairing_kind(issue, action)
+        pair: PhotoPair | None = None
+        if kind == "covered-blocks":
+            after_candidates = top_unused(profiles, used, "green_cover", 1, minimum_score=8.0)
+            if after_candidates:
+                after = after_candidates[0]
+                before_candidates = top_unused(
+                    [profile for profile in profiles if profile.path != after.path],
+                    used | {after.path},
+                    "block_storage",
+                    1,
+                )
+                if before_candidates:
+                    before = before_candidates[0]
+                    pair = PhotoPair(
+                        before=before.path,
+                        after=after.path,
+                        method="description-aware",
+                        reason="Matched paving-block issue: BEFORE is the strongest block/storage photo; AFTER is the strongest green cover/plastic-sheet photo.",
+                    )
+        elif kind == "generator-extinguisher":
+            candidates = top_unused(profiles, used, "generator", 2, minimum_score=8.0)
+            if len(candidates) == 2:
+                before, after = sorted(candidates, key=lambda profile: (profile.blue_left, profile.timestamp))
+                pair = PhotoPair(
+                    before=before.path,
+                    after=after.path,
+                    method="description-aware",
+                    reason="Matched generator/fire-extinguisher issue: both photos score as generator; AFTER has stronger left-side blue extinguisher signal.",
+                )
+        elif kind == "ladder-string":
+            candidates = top_unused(profiles, used, "yellow_barrier", 2, minimum_score=8.0)
+            if len(candidates) == 2:
+                before, after = sorted(candidates, key=lambda profile: profile.timestamp)
+                pair = PhotoPair(
+                    before=before.path,
+                    after=after.path,
+                    method="description-aware",
+                    reason="Matched ladder/string issue: both photos score as yellow access barrier/ladder; timestamp order is used for BEFORE then AFTER.",
+                )
+
+        if pair:
+            resolved[index] = pair
+            used.add(pair.before)
+            used.add(pair.after)
+
+    remaining_indexes = [index for index, pair in enumerate(resolved) if pair is None]
+    remaining_photos = [photo for photo in photos if photo not in used]
+    if remaining_indexes:
+        remaining_before, remaining_after = split_even_photos(remaining_photos, len(remaining_indexes))
+        for local_index, issue_index in enumerate(remaining_indexes):
+            resolved[issue_index] = PhotoPair(
+                before=remaining_before[local_index],
+                after=remaining_after[local_index],
+            )
+
+    return [pair if pair is not None else fallback_pairs[index] for index, pair in enumerate(resolved)]
 
 
 def load_override_pairs(job_dir: Path, auto_plan: list[PhotoPair]) -> list[PhotoPair]:
@@ -105,7 +284,7 @@ def load_override_pairs(job_dir: Path, auto_plan: list[PhotoPair]) -> list[Photo
         return auto_plan
 
     data = read_json(override_path)
-    resolved = [PhotoPair(before=item.before, after=item.after) for item in auto_plan]
+    resolved = [PhotoPair(before=item.before, after=item.after, method=item.method, reason=item.reason) for item in auto_plan]
 
     def apply_index(index: int, before: Any | None = None, after: Any | None = None) -> None:
         if index < 1 or index > len(resolved):
@@ -113,8 +292,12 @@ def load_override_pairs(job_dir: Path, auto_plan: list[PhotoPair]) -> list[Photo
         pair = resolved[index - 1]
         if before is not None:
             pair.before = resolve_photo_reference(job_dir, before)
+            pair.method = "manual-override"
+            pair.reason = "Loaded from photo_mapping.json."
         if after is not None:
             pair.after = resolve_photo_reference(job_dir, after)
+            pair.method = "manual-override"
+            pair.reason = "Loaded from photo_mapping.json."
 
     if isinstance(data.get("issues"), list):
         for index, item in enumerate(data["issues"], start=1):
@@ -167,6 +350,8 @@ def build_suggestion_payload(
                 "action_text": actions[index],
                 "before": pairs[index].before.name,
                 "after": pairs[index].after.name,
+                "method": pairs[index].method,
+                "reason": pairs[index].reason,
             }
             for index in range(len(pairs))
         ],
@@ -180,7 +365,7 @@ def build_local_report(date: str, photo_root: Path, out_dir: Path) -> tuple[Path
     issues = list(details["issues"])
     actions = list(details["actions"])
 
-    auto_plan = auto_pairs(job_dir, photos, len(issues))
+    auto_plan = auto_pairs(job_dir, photos, issues, actions)
     suggested_path = job_dir / SUGGESTED_FILENAME
     write_json(suggested_path, build_suggestion_payload(date, photos, issues, actions, auto_plan))
 

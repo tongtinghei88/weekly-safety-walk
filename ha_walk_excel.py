@@ -422,10 +422,10 @@ def prepare_cover_issue_rows(cover: Any, issue_count: int) -> list[int]:
 
 
 def signed_date_cells(issue_count: int) -> tuple[str, str, str, str]:
-    if issue_count <= 3:
+    if issue_count <= ITEMS_PER_RECTIFICATION_SHEET:
         return "C28", "H28", "C29", "H29"
     extra_rows = max(0, issue_count - ITEMS_PER_RECTIFICATION_SHEET)
-    return f"C{29 + extra_rows}", f"H{29 + extra_rows}", "C28", "H28"
+    return f"C{28 + extra_rows}", f"H{28 + extra_rows}", "C28", "H28"
 
 
 def apply_cover_signatures(cover: Any, walk_type: str, inspect_date: datetime, issue_count: int) -> None:
@@ -442,9 +442,11 @@ def apply_cover_signatures(cover: Any, walk_type: str, inspect_date: datetime, i
     cover[primary_date_2] = inspect_date
     cover[clear_date_1] = None
     cover[clear_date_2] = None
-    set_value("C27", "Chan Yuk Shun\nAuthorized Representative")
-    set_value("H27", "Tong Ting Hei\nSafety Officer")
-    set_value("M27", "Y. M. KWAN\nAIOW/C4")
+    signer_row = int(re.search(r"\d+", primary_date_1).group()) - 2
+    set_value(f"C{signer_row}", "Chan Yuk Shun\nAuthorized Representative")
+    set_value(f"H{signer_row}", "Tong Ting Hei\nSafety Officer")
+    set_value(f"M{signer_row}", "Y. M. KWAN\nAIOW/C4")
+    clear_cells((f"C{signer_row + 1}", f"H{signer_row + 1}", f"M{signer_row + 1}"))
 
     if walk_type == "weekly":
         clear_cells(("L29", "M29", "N29", "O29", "L30", "L31", "M31", "N31", "O31", "L32", "M32", "N32", "L33", "M33", "L34", "M34", "N34"))

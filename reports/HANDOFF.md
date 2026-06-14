@@ -1,6 +1,6 @@
 # Weekly Safety Walk Handoff
 
-Date: 2026-06-14
+Date: 2026-06-15
 
 ## Summary
 - Replaced the Telegram-driven workflow with a local folder-based runner.
@@ -16,13 +16,25 @@ Date: 2026-06-14
 4. If needed, add `photo_mapping.json` to override the automatic pairing.
 5. The builder generates PDF and Excel into `outputs\Test` by default.
 
+## Current Output
+- `20260512` rebuild completed to `outputs\Test\Site Safety and Environment Walk No.80(12-05-2026).xlsx`.
+- `20260512.pdf` also regenerated in `outputs\Test`.
+- Gmail was reauthorized successfully and the rebuild now works again.
+- `20260519` rebuild completed to `outputs\Test\Site Safety and Environment Walk No.81(19-05-2026).xlsx`.
+- `20260519.pdf` also regenerated in `outputs\Test`.
+
 ## Important Notes
 - Gmail remains the source for issue/action text.
 - Telegram is no longer required for the main workflow.
 - `photo_mapping.json` is the intended manual override point.
+- `photo_mapping.suggested.json` now includes `method` and `reason` for each proposed pair.
 - GitHub should stay code/config only. Do not push secrets, outputs, or photos.
 
 ## Recent Fixes
+- Fixed Cover sheet signature block duplicate name/title text; signer labels now stay on the parenthesized row and the row below is cleared.
+- Added description-aware photo pairing in `build_local_ha_report.py` before the timestamp-split fallback.
+- Current description-aware rules cover paving-block cover/plastic-sheet, generator/fire-extinguisher, and ladder/safe-access/string issues.
+- Updated the `weekly-safety-walk` skill to require review of suggested pairing method/reason and to prefer code-rule fixes for repeatable pairing errors.
 - Cover sheet inspection people now use the expected default names.
 - Unused follow-up rows are hidden so there are no blank rows.
 - Weekly and bi-weekly signature blocks are cleaned up and normalized.
@@ -31,9 +43,13 @@ Date: 2026-06-14
 ## Verification
 - Trial run completed for `20260604`.
 - Trial run completed for `20260611`.
+- `20260512` fresh rebuild verified in `outputs\Test`.
+- `20260519` fresh rebuild verified in `outputs\Test`.
+- `20260519` embedded Excel image order verified:
+  `100520 -> 20260520_105307`, `101826 -> 101914`, `102148 -> 102224`.
+- `20260519` Cover sheet verified: `C27/H27/M27` are blank after regeneration.
 
 ## Shutdown Status
-- Local commit created: `19c1a5e` (`Add local report runner and cover sheet fixes`).
-- Follow-up commit created: `cc84f94` (`Update shutdown handoff`).
-- Push to `origin/main` succeeded after clearing the stale `.git/packed-refs.lock` file.
-- No secrets, outputs, or photos were staged for GitHub.
+- `weekly-safety-walk` skill confirmed updated in `G:\我的雲端硬碟\Codex-System\skills\weekly-safety-walk\SKILL.md`.
+- Obsidian note confirmed updated at `G:\我的雲端硬碟\secondbrain\Projects\Weekly Safety Walk\工作筆記.md`.
+- Ready for shutdown commit with code/config only; do not stage `Photo/`, `outputs/`, Gmail tokens, credentials, logs, or local assistant folders.
