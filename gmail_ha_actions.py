@@ -367,6 +367,7 @@ def action_from_issue(issue: str) -> str:
         (" should be provided ", " has been provided "),
         (" should be placed on ", " has been placed on "),
         (" should be placed ", " has been placed "),
+        (" should be cleared during ", " has been cleared during "),
         (" should be adjusted to ", " has been adjusted to "),
         (" should be properly fixed on ", " has been properly fixed on "),
         (" should be properly covered with ", " has been properly covered with "),

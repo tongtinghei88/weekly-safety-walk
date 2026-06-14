@@ -31,6 +31,14 @@ LEGACY_CHECK_MARK = "ü"
 CHECK_MARK_FONT = "Times New Roman"
 THIN_SIDE = Side(style="thin")
 
+DEFAULT_INSPECTION_PERSONS: tuple[tuple[str, str, str], ...] = (
+    ("Y. M. KWAN", "Housing Department", "AIOW/C4"),
+    ("Tong Ting Hei", "HCECL", "Safety Officer"),
+    ("Tang Man Yi", "HCECL", "Environmental Supervisor"),
+    ("Tang Hung Leong", "HCECL", "Environmental Manager"),
+    ("Chan Yuk Shun", "HCECL", "Authorized Representative"),
+)
+
 
 def parse_date(date: str) -> datetime:
     return datetime.strptime(date, "%Y%m%d")
@@ -402,7 +410,15 @@ def prepare_cover_issue_rows(cover: Any, issue_count: int) -> list[int]:
             cover.merge_cells(start_row=row, start_column=3, end_row=row, end_column=9)
             cover.merge_cells(start_row=row, start_column=10, end_row=row, end_column=11)
             cover.merge_cells(start_row=row, start_column=12, end_row=row, end_column=14)
-    return list(range(19, 19 + max(issue_count, ITEMS_PER_RECTIFICATION_SHEET)))
+    for row in range(19 + issue_count, 19 + ITEMS_PER_RECTIFICATION_SHEET):
+        cover.row_dimensions[row].hidden = True
+        cover.row_dimensions[row].height = 0
+        for col in range(2, 15):
+            cell = cover.cell(row, col)
+            if not isinstance(cell, MergedCell):
+                cell.value = None
+                cell.border = Border()
+    return list(range(19, 19 + issue_count))
 
 
 def signed_date_cells(issue_count: int) -> tuple[str, str, str, str]:
@@ -417,17 +433,25 @@ def apply_cover_signatures(cover: Any, walk_type: str, inspect_date: datetime, i
         if not isinstance(cover[cell_ref], MergedCell):
             cover[cell_ref] = value
 
+    def clear_cells(cell_refs: tuple[str, ...]) -> None:
+        for cell_ref in cell_refs:
+            set_value(cell_ref, None)
+
     primary_date_1, primary_date_2, clear_date_1, clear_date_2 = signed_date_cells(issue_count)
     cover[primary_date_1] = inspect_date
     cover[primary_date_2] = inspect_date
     cover[clear_date_1] = None
     cover[clear_date_2] = None
+    set_value("C27", "Chan Yuk Shun\nAuthorized Representative")
+    set_value("H27", "Tong Ting Hei\nSafety Officer")
+    set_value("M27", "Y. M. KWAN\nAIOW/C4")
 
     if walk_type == "weekly":
-        for cell_ref in ("L30", "L31", "M31", "N31", "O31", "L33", "M33"):
-            set_value(cell_ref, None)
-        for row in range(30, 34):
-            for col in range(13, 16):
+        clear_cells(("L29", "M29", "N29", "O29", "L30", "L31", "M31", "N31", "O31", "L32", "M32", "N32", "L33", "M33", "L34", "M34", "N34"))
+        for row in range(29, 35):
+            for col in range(12, 16):
+                cell_ref = f"{chr(64 + col)}{row}"
+                set_value(cell_ref, None)
                 cover.cell(row, col).border = Border()
         return
 
@@ -435,6 +459,14 @@ def apply_cover_signatures(cover: Any, walk_type: str, inspect_date: datetime, i
     set_value("L31", "(")
     set_value("M31", "Patrick, P. T. KO\nCE/T243")
     set_value("L33", "Date : ")
+    clear_cells(("L32", "M32", "N32", "L34", "M34", "N34"))
+    for row in range(30, 35):
+        if row in (30, 31, 33):
+            continue
+        for col in range(12, 16):
+            cell_ref = f"{chr(64 + col)}{row}"
+            set_value(cell_ref, None)
+            cover.cell(row, col).border = Border()
     for col in range(13, 15):
         cover.cell(30, col).border = copy(cover.cell(30, col).border)
         cover.cell(30, col).border = Border(bottom=THIN_SIDE)
@@ -476,6 +508,10 @@ def fill_rectification_sheet(
     template_before_slots: list[Any],
     template_after_slots: list[Any],
 ) -> None:
+    def set_value(cell_ref: str, value: Any) -> None:
+        if not isinstance(sheet[cell_ref], MergedCell):
+            sheet[cell_ref] = value
+
     rect_photo_rows = [19, 40, 61, 82]
     rect_rows = [20, 41, 62, 83]
     rect_issue_rows = [21, 42, 63, 84]
@@ -487,15 +523,15 @@ def fill_rectification_sheet(
         issue_row = rect_issue_rows[local_index]
         if global_index >= len(issues):
             for ref in (f"D{photo_row}", f"L{photo_row}", f"D{row}", f"L{row}", f"D{issue_row}", f"L{issue_row}"):
-                sheet[ref] = None
+                set_value(ref, None)
             continue
         location = location_base(locations[global_index]) if global_index < len(locations) else ""
-        sheet[f"D{photo_row}"] = global_index + 1
-        sheet[f"L{photo_row}"] = global_index + 1
-        sheet[f"D{row}"] = location
-        sheet[f"L{row}"] = location
-        sheet[f"D{issue_row}"] = issues[global_index]
-        sheet[f"L{issue_row}"] = actions[global_index]
+        set_value(f"D{photo_row}", global_index + 1)
+        set_value(f"L{photo_row}", global_index + 1)
+        set_value(f"D{row}", location)
+        set_value(f"L{row}", location)
+        set_value(f"D{issue_row}", issues[global_index])
+        set_value(f"L{issue_row}", actions[global_index])
 
     sheet._images = []
     for local_index, slot in enumerate(template_before_slots):
@@ -515,6 +551,10 @@ def create_walk_excel(
     before_photos: list[Path] | None = None,
     out_dir: Path | None = None,
 ) -> Path:
+    def set_value(sheet: Any, cell_ref: str, value: Any) -> None:
+        if not isinstance(sheet[cell_ref], MergedCell):
+            sheet[cell_ref] = value
+
     details = fetch_ha_details(date)
     issues = list(details["issues"])
     actions = list(details["actions"])
@@ -545,18 +585,22 @@ def create_walk_excel(
     cover["M6"] = inspect_date
     cover["M7"] = details.get("time") or "09:30 A.M."
     cover["E7"] = details.get("location_summary") or ""
+    for row_index, (name, organization, designation) in enumerate(DEFAULT_INSPECTION_PERSONS, start=11):
+        cover[f"B{row_index}"] = name
+        cover[f"G{row_index}"] = organization
+        cover[f"L{row_index}"] = designation
     cover_issue_rows = prepare_cover_issue_rows(cover, len(issues))
     for index, row in enumerate(cover_issue_rows):
         if index < len(issues):
-            cover[f"B{row}"] = index + 1
-            cover[f"C{row}"] = issues[index]
-            cover[f"J{row}"] = "HCECL"
-            cover[f"L{row}"] = due_date
+            set_value(cover, f"B{row}", index + 1)
+            set_value(cover, f"C{row}", issues[index])
+            set_value(cover, f"J{row}", "HCECL")
+            set_value(cover, f"L{row}", due_date)
         else:
-            cover[f"B{row}"] = None
-            cover[f"C{row}"] = None
-            cover[f"J{row}"] = None
-            cover[f"L{row}"] = None
+            set_value(cover, f"B{row}", None)
+            set_value(cover, f"C{row}", None)
+            set_value(cover, f"J{row}", None)
+            set_value(cover, f"L{row}", None)
     apply_cover_signatures(cover, walk_type, inspect_date, len(issues))
 
     if anti_mosquito is not None:
