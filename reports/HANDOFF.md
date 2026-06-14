@@ -52,4 +52,5 @@ Date: 2026-06-15
 ## Shutdown Status
 - `weekly-safety-walk` skill confirmed updated in `G:\我的雲端硬碟\Codex-System\skills\weekly-safety-walk\SKILL.md`.
 - Obsidian note confirmed updated at `G:\我的雲端硬碟\secondbrain\Projects\Weekly Safety Walk\工作筆記.md`.
-- Ready for shutdown commit with code/config only; do not stage `Photo/`, `outputs/`, Gmail tokens, credentials, logs, or local assistant folders.
+- Shutdown commit created and pushed: `7567ce8` (`Fix weekly walk photo pairing and cover signatures`).
+- No secrets, photos, generated outputs, Gmail tokens, credentials, logs, or local assistant folders were staged.
