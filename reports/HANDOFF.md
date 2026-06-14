@@ -31,3 +31,8 @@ Date: 2026-06-14
 ## Verification
 - Trial run completed for `20260604`.
 - Trial run completed for `20260611`.
+
+## Shutdown Status
+- Local commit created: `19c1a5e` (`Add local report runner and cover sheet fixes`).
+- Push to `origin/main` was blocked by a stale `.git/packed-refs.lock` file.
+- No secrets, outputs, or photos were staged for GitHub.
