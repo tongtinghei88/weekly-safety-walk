@@ -284,6 +284,49 @@ def set_cover_title(cover: Any, walk_type: str) -> None:
         )
 
 
+def border_with_thin_sides(
+    border: Border,
+    *,
+    left: bool = False,
+    right: bool = False,
+    top: bool = False,
+    bottom: bool = False,
+) -> Border:
+    return Border(
+        left=THIN_SIDE if left else copy(border.left),
+        right=THIN_SIDE if right else copy(border.right),
+        top=THIN_SIDE if top else copy(border.top),
+        bottom=THIN_SIDE if bottom else copy(border.bottom),
+        diagonal=copy(border.diagonal),
+        diagonal_direction=border.diagonal_direction,
+        diagonalUp=border.diagonalUp,
+        diagonalDown=border.diagonalDown,
+        outline=border.outline,
+        vertical=copy(border.vertical),
+        horizontal=copy(border.horizontal),
+        start=copy(border.start),
+        end=copy(border.end),
+    )
+
+
+def apply_cover_inspection_table_borders(cover: Any) -> None:
+    for row in range(9, 17):
+        for col in range(2, 15):
+            left = col == 2
+            right = col == 14
+            if row >= 10:
+                left = left or col in (7, 12)
+                right = right or col in (6, 11)
+            cell = cover.cell(row, col)
+            cell.border = border_with_thin_sides(
+                cell.border,
+                left=left,
+                right=right,
+                top=True,
+                bottom=True,
+            )
+
+
 SAFETY_CHECKLIST_RULES: tuple[tuple[int, tuple[str, ...], tuple[str, ...]], ...] = (
     (9, ("form 1", "weekly inspection", "statutory inspection"), ("lifting",)),
     (10, ("colour code", "color code"), ("lifting gear", "lifting appliance", "sling")),
@@ -591,6 +634,7 @@ def create_walk_excel(
         cover[f"B{row_index}"] = name
         cover[f"G{row_index}"] = organization
         cover[f"L{row_index}"] = designation
+    apply_cover_inspection_table_borders(cover)
     cover_issue_rows = prepare_cover_issue_rows(cover, len(issues))
     for index, row in enumerate(cover_issue_rows):
         if index < len(issues):

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PIL import Image
 
@@ -25,16 +25,18 @@ SUGGESTED_FILENAME = "photo_mapping.suggested.json"
 
 @dataclass
 class PhotoPair:
-    before: Path
-    after: Path
-    method: str = "timestamp-split"
-    reason: str = "Fallback split: sorted photos are treated as all BEFORE photos followed by all AFTER photos."
+    before: Path | None = None
+    after: Path | None = None
+    method: str = "needs-review"
+    reason: str = (
+        "No confident match from issue text and photo contents. "
+        "The runner does not use photo timestamps for placement; inspect the photos and add photo_mapping.json."
+    )
 
 
 @dataclass(frozen=True)
 class PhotoProfile:
     path: Path
-    timestamp: int
     green_cover: float
     yellow_barrier: float
     generator: float
@@ -61,30 +63,16 @@ def collect_photos(job_dir: Path) -> list[Path]:
     if not photos:
         raise FileNotFoundError(f"No photos found in: {job_dir}")
 
-    def sort_key(path: Path) -> tuple[int, str]:
-        match = re.search(r"(\d{8})_(\d{6})", path.stem)
-        if match:
-            return (int(match.group(1) + match.group(2)), path.name.lower())
-        return (0, path.name.lower())
-
-    return sorted(photos, key=sort_key)
+    return sorted(photos, key=lambda path: path.name.lower())
 
 
-def photo_timestamp(path: Path) -> int:
-    match = re.search(r"(\d{8})_(\d{6})", path.stem)
-    if match:
-        return int(match.group(1) + match.group(2))
-    return 0
-
-
-def split_even_photos(photos: list[Path], issue_count: int) -> tuple[list[Path], list[Path]]:
+def validate_photo_count(photos: list[Path], issue_count: int) -> None:
     expected = issue_count * 2
     if len(photos) != expected:
         raise RuntimeError(
             f"Photo count mismatch: found {len(photos)} photo(s), "
             f"but {issue_count} issue(s) require {expected} photo(s)."
         )
-    return photos[:issue_count], photos[issue_count:]
 
 
 def image_ratio(pixels: list[tuple[int, int, int]], predicate: Any) -> float:
@@ -143,7 +131,6 @@ def build_photo_profile(path: Path) -> PhotoProfile:
 
     return PhotoProfile(
         path=path,
-        timestamp=photo_timestamp(path),
         green_cover=(green * 100) - (yellow * 20) - (red_area * 10),
         yellow_barrier=(yellow * 100) + (brown * 20) - (red_area * 20),
         generator=(red_area * 120) + (black * 30) - (yellow * 80) - (green * 80),
@@ -158,8 +145,6 @@ def issue_pairing_kind(issue: str, action: str) -> str | None:
         return "covered-blocks"
     if "fire extinguisher" in text and "generator" in text:
         return "generator-extinguisher"
-    if "ladder" in text and ("safe access" in text or "string" in text):
-        return "ladder-string"
     return None
 
 
@@ -171,7 +156,7 @@ def top_unused(
     minimum_score: float | None = None,
 ) -> list[PhotoProfile]:
     candidates = [profile for profile in profiles if profile.path not in used]
-    candidates.sort(key=lambda profile: (getattr(profile, score_name), profile.timestamp), reverse=True)
+    candidates.sort(key=lambda profile: (-getattr(profile, score_name), profile.path.name.lower()))
     selected = candidates[:count]
     if len(selected) < count:
         return []
@@ -211,8 +196,7 @@ def resolve_photo_reference(job_dir: Path, value: Any) -> Path:
 
 def auto_pairs(job_dir: Path, photos: list[Path], issues: list[str], actions: list[str]) -> list[PhotoPair]:
     issue_count = len(issues)
-    before_photos, after_photos = split_even_photos(photos, issue_count)
-    fallback_pairs = [PhotoPair(before=before_photos[index], after=after_photos[index]) for index in range(issue_count)]
+    validate_photo_count(photos, issue_count)
 
     profiles = [build_photo_profile(photo) for photo in photos]
     resolved: list[PhotoPair | None] = [None] * issue_count
@@ -242,40 +226,27 @@ def auto_pairs(job_dir: Path, photos: list[Path], issues: list[str], actions: li
         elif kind == "generator-extinguisher":
             candidates = top_unused(profiles, used, "generator", 2, minimum_score=8.0)
             if len(candidates) == 2:
-                before, after = sorted(candidates, key=lambda profile: (profile.blue_left, profile.timestamp))
-                pair = PhotoPair(
-                    before=before.path,
-                    after=after.path,
-                    method="description-aware",
-                    reason="Matched generator/fire-extinguisher issue: both photos score as generator; AFTER has stronger left-side blue extinguisher signal.",
-                )
-        elif kind == "ladder-string":
-            candidates = top_unused(profiles, used, "yellow_barrier", 2, minimum_score=8.0)
-            if len(candidates) == 2:
-                before, after = sorted(candidates, key=lambda profile: profile.timestamp)
-                pair = PhotoPair(
-                    before=before.path,
-                    after=after.path,
-                    method="description-aware",
-                    reason="Matched ladder/string issue: both photos score as yellow access barrier/ladder; timestamp order is used for BEFORE then AFTER.",
-                )
+                before, after = sorted(candidates, key=lambda profile: profile.blue_left)
+                if after.blue_left - before.blue_left >= 1.0:
+                    pair = PhotoPair(
+                        before=before.path,
+                        after=after.path,
+                        method="description-aware",
+                        reason="Matched generator/fire-extinguisher issue: both photos score as generator; AFTER has stronger left-side blue extinguisher signal.",
+                    )
 
         if pair:
             resolved[index] = pair
-            used.add(pair.before)
-            used.add(pair.after)
+            if pair.before is not None:
+                used.add(pair.before)
+            if pair.after is not None:
+                used.add(pair.after)
 
-    remaining_indexes = [index for index, pair in enumerate(resolved) if pair is None]
-    remaining_photos = [photo for photo in photos if photo not in used]
-    if remaining_indexes:
-        remaining_before, remaining_after = split_even_photos(remaining_photos, len(remaining_indexes))
-        for local_index, issue_index in enumerate(remaining_indexes):
-            resolved[issue_index] = PhotoPair(
-                before=remaining_before[local_index],
-                after=remaining_after[local_index],
-            )
+    for index, pair in enumerate(resolved):
+        if pair is None:
+            resolved[index] = PhotoPair()
 
-    return [pair if pair is not None else fallback_pairs[index] for index, pair in enumerate(resolved)]
+    return [cast(PhotoPair, pair) for pair in resolved]
 
 
 def load_override_pairs(job_dir: Path, auto_plan: list[PhotoPair]) -> list[PhotoPair]:
@@ -322,12 +293,28 @@ def load_override_pairs(job_dir: Path, auto_plan: list[PhotoPair]) -> list[Photo
 
     seen: set[Path] = set()
     for pair in resolved:
-        if pair.before in seen or pair.after in seen:
-            raise RuntimeError("Each photo can only be used once across BEFORE and AFTER.")
-        seen.add(pair.before)
-        seen.add(pair.after)
+        for photo in (pair.before, pair.after):
+            if photo is None:
+                continue
+            if photo in seen:
+                raise RuntimeError("Each photo can only be used once across BEFORE and AFTER.")
+            seen.add(photo)
 
     return resolved
+
+
+def require_resolved_pairs(pairs: list[PhotoPair], override_path: Path, suggested_path: Path) -> None:
+    unresolved = [
+        str(index)
+        for index, pair in enumerate(pairs, start=1)
+        if pair.before is None or pair.after is None
+    ]
+    if unresolved:
+        raise RuntimeError(
+            "Photo mapping requires visual review for issue(s): "
+            + ", ".join(unresolved)
+            + f". Review issue text and photo contents in {suggested_path}, then create or update {override_path}."
+        )
 
 
 def build_suggestion_payload(
@@ -348,8 +335,8 @@ def build_suggestion_payload(
                 "issue": index + 1,
                 "issue_text": issues[index],
                 "action_text": actions[index],
-                "before": pairs[index].before.name,
-                "after": pairs[index].after.name,
+                "before": pairs[index].before.name if pairs[index].before else None,
+                "after": pairs[index].after.name if pairs[index].after else None,
                 "method": pairs[index].method,
                 "reason": pairs[index].reason,
             }
@@ -370,8 +357,9 @@ def build_local_report(date: str, photo_root: Path, out_dir: Path) -> tuple[Path
     write_json(suggested_path, build_suggestion_payload(date, photos, issues, actions, auto_plan))
 
     plan = load_override_pairs(job_dir, auto_plan)
-    before_photos = [pair.before for pair in plan]
-    after_photos = [pair.after for pair in plan]
+    require_resolved_pairs(plan, job_dir / OVERRIDE_FILENAME, suggested_path)
+    before_photos = [cast(Path, pair.before) for pair in plan]
+    after_photos = [cast(Path, pair.after) for pair in plan]
 
     out_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = create_action_pdf(
