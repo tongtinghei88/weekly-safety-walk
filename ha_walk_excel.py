@@ -48,40 +48,43 @@ def date_label(date: str) -> str:
     return parse_date(date).strftime("%d-%m-%Y")
 
 
-def find_report_no(date: str) -> int:
-    label = date_label(date)
-    for path in WALK_DIR.glob(f"Site Safety and Environment Walk No.*({label}).xlsx"):
-        match = re.search(r"No\.(\d+)", path.name)
-        if match:
-            return int(match.group(1))
-
-    dated: list[tuple[datetime, int]] = []
-    for path in WALK_DIR.glob("Site Safety and Environment Walk No.*.xlsx"):
-        if "completed" in path.name.lower() or "sample" in path.name.lower():
+def dated_walk_files(search_dirs: list[Path] | None = None) -> list[tuple[datetime, int, Path]]:
+    files: list[tuple[datetime, int, Path]] = []
+    seen_dirs: set[Path] = set()
+    for directory in search_dirs or [WALK_DIR]:
+        directory = directory.resolve()
+        if directory in seen_dirs or not directory.exists():
             continue
-        match = re.search(r"No\.(\d+)\s*\((\d{2}-\d{2}-\d{4})\)", path.name)
-        if match:
-            dated.append((datetime.strptime(match.group(2), "%d-%m-%Y"), int(match.group(1))))
-    before = [(dt, number) for dt, number in dated if dt <= parse_date(date)]
+        seen_dirs.add(directory)
+        for path in directory.glob("Site Safety and Environment Walk No.*.xlsx"):
+            if "completed" in path.name.lower() or "sample" in path.name.lower():
+                continue
+            match = re.search(r"No\.(\d+)\s*\((\d{2}-\d{2}-\d{4})\)", path.name)
+            if match:
+                files.append((datetime.strptime(match.group(2), "%d-%m-%Y"), int(match.group(1)), path))
+    return files
+
+
+def find_report_no(date: str, search_dirs: list[Path] | None = None) -> int:
+    target_date = parse_date(date)
+    dated = [(dt, number) for dt, number, _ in dated_walk_files(search_dirs)]
+    before = [(dt, number) for dt, number in dated if dt < target_date]
     if before:
         return sorted(before)[-1][1] + 1
+
+    label = date_label(date)
+    for directory in search_dirs or [WALK_DIR]:
+        for path in directory.glob(f"Site Safety and Environment Walk No.*({label}).xlsx"):
+            match = re.search(r"No\.(\d+)", path.name)
+            if match:
+                return int(match.group(1))
+
     return max((number for _, number in dated), default=0) + 1
 
 
 def walk_type_for_file_date(file_date: datetime) -> str:
     week_number = ((file_date.day - 1) // 7) + 1
     return "weekly" if week_number % 2 == 1 else "biweekly"
-
-
-def dated_walk_files() -> list[tuple[datetime, int, Path]]:
-    files: list[tuple[datetime, int, Path]] = []
-    for path in WALK_DIR.glob("Site Safety and Environment Walk No.*.xlsx"):
-        if "completed" in path.name.lower() or "sample" in path.name.lower():
-            continue
-        match = re.search(r"No\.(\d+)\s*\((\d{2}-\d{2}-\d{4})\)", path.name)
-        if match:
-            files.append((datetime.strptime(match.group(2), "%d-%m-%Y"), int(match.group(1)), path))
-    return files
 
 
 def template_for_type(walk_type: str, date: str | None = None, issue_count: int | None = None) -> Path:
@@ -327,6 +330,26 @@ def apply_cover_inspection_table_borders(cover: Any) -> None:
             )
 
 
+def cell_text(value: Any) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def find_row_with_label(sheet: Any, column: int, label: str, start_row: int = 1) -> int | None:
+    target = label.lower()
+    for row in range(start_row, sheet.max_row + 1):
+        if cell_text(sheet.cell(row, column).value).lower() == target:
+            return row
+    return None
+
+
+def find_cover_date_rows(cover: Any) -> tuple[int, int | None]:
+    primary_row = find_row_with_label(cover, 2, "Date :")
+    extra_row = find_row_with_label(cover, 12, "Date :", (primary_row or 1) + 1)
+    if primary_row is None:
+        primary_row = 27
+    return primary_row, extra_row
+
+
 SAFETY_CHECKLIST_RULES: tuple[tuple[int, tuple[str, ...], tuple[str, ...]], ...] = (
     (9, ("form 1", "weekly inspection", "statutory inspection"), ("lifting",)),
     (10, ("colour code", "color code"), ("lifting gear", "lifting appliance", "sling")),
@@ -464,14 +487,7 @@ def prepare_cover_issue_rows(cover: Any, issue_count: int) -> list[int]:
     return list(range(19, 19 + issue_count))
 
 
-def signed_date_cells(issue_count: int) -> tuple[str, str, str, str]:
-    if issue_count <= ITEMS_PER_RECTIFICATION_SHEET:
-        return "C28", "H28", "C29", "H29"
-    extra_rows = max(0, issue_count - ITEMS_PER_RECTIFICATION_SHEET)
-    return f"C{28 + extra_rows}", f"H{28 + extra_rows}", "C28", "H28"
-
-
-def apply_cover_signatures(cover: Any, walk_type: str, inspect_date: datetime, issue_count: int) -> None:
+def apply_cover_signatures(cover: Any, walk_type: str, inspect_date: datetime, _issue_count: int) -> None:
     def set_value(cell_ref: str, value: Any) -> None:
         if not isinstance(cover[cell_ref], MergedCell):
             cover[cell_ref] = value
@@ -480,43 +496,46 @@ def apply_cover_signatures(cover: Any, walk_type: str, inspect_date: datetime, i
         for cell_ref in cell_refs:
             set_value(cell_ref, None)
 
-    primary_date_1, primary_date_2, clear_date_1, clear_date_2 = signed_date_cells(issue_count)
-    cover[primary_date_1] = inspect_date
-    cover[primary_date_2] = inspect_date
-    cover[clear_date_1] = None
-    cover[clear_date_2] = None
-    signer_row = int(re.search(r"\d+", primary_date_1).group()) - 2
+    primary_date_row, extra_date_row = find_cover_date_rows(cover)
+    signer_row = primary_date_row - 2
     set_value(f"C{signer_row}", "Chan Yuk Shun\nAuthorized Representative")
     set_value(f"H{signer_row}", "Tong Ting Hei\nSafety Officer")
     set_value(f"M{signer_row}", "Y. M. KWAN\nAIOW/C4")
     clear_cells((f"C{signer_row + 1}", f"H{signer_row + 1}", f"M{signer_row + 1}"))
+    for cell_ref in (f"C{primary_date_row}", f"H{primary_date_row}"):
+        set_value(cell_ref, inspect_date)
+        cover[cell_ref].number_format = "d/m/yyyy"
 
     if walk_type == "weekly":
-        clear_cells(("L29", "M29", "N29", "O29", "L30", "L31", "M31", "N31", "O31", "L32", "M32", "N32", "L33", "M33", "L34", "M34", "N34"))
-        for row in range(29, 35):
+        start_row = (extra_date_row - 3) if extra_date_row else primary_date_row + 2
+        end_row = (extra_date_row + 1) if extra_date_row else primary_date_row + 7
+        for row in range(start_row, end_row + 1):
             for col in range(12, 16):
                 cell_ref = f"{chr(64 + col)}{row}"
                 set_value(cell_ref, None)
                 cover.cell(row, col).border = Border()
         return
 
-    set_value("L30", "Signed : ")
-    set_value("L31", "(")
-    set_value("M31", "Patrick, P. T. KO\nCE/T243")
-    set_value("L33", "Date : ")
-    clear_cells(("L32", "M32", "N32", "L34", "M34", "N34"))
-    for row in range(30, 35):
-        if row in (30, 31, 33):
+    extra_date_row = extra_date_row or primary_date_row + 5
+    extra_signed_row = extra_date_row - 3
+    extra_signer_row = extra_date_row - 2
+    set_value(f"L{extra_signed_row}", "Signed : ")
+    set_value(f"L{extra_signer_row}", "(")
+    set_value(f"M{extra_signer_row}", "Patrick, P. T. KO\nCE/T243")
+    set_value(f"O{extra_signer_row}", ")")
+    set_value(f"L{extra_date_row}", "Date : ")
+    clear_cells((f"L{extra_signer_row + 1}", f"M{extra_signer_row + 1}", f"N{extra_signer_row + 1}"))
+    for row in range(extra_signed_row, extra_date_row + 2):
+        if row in (extra_signed_row, extra_signer_row, extra_date_row):
             continue
         for col in range(12, 16):
             cell_ref = f"{chr(64 + col)}{row}"
             set_value(cell_ref, None)
             cover.cell(row, col).border = Border()
     for col in range(13, 15):
-        cover.cell(30, col).border = copy(cover.cell(30, col).border)
-        cover.cell(30, col).border = Border(bottom=THIN_SIDE)
-        cover.cell(31, col).border = Border(top=THIN_SIDE)
-        cover.cell(33, col).border = Border(bottom=THIN_SIDE)
+        cover.cell(extra_signed_row, col).border = Border(bottom=THIN_SIDE)
+        cover.cell(extra_signer_row, col).border = Border(top=THIN_SIDE)
+        cover.cell(extra_date_row, col).border = Border(bottom=THIN_SIDE)
 
 
 def apply_anti_mosquito_signatures(anti_mosquito: Any, walk_type: str) -> None:
@@ -542,6 +561,35 @@ def apply_anti_mosquito_signatures(anti_mosquito: Any, walk_type: str) -> None:
         anti_mosquito.cell(31, col).border = Border(bottom=THIN_SIDE)
 
 
+def rectification_photo_rows(sheet: Any) -> list[int]:
+    rows: list[int] = []
+    for row in range(1, sheet.max_row + 1):
+        if cell_text(sheet.cell(row, 2).value) == "Photo No." and cell_text(sheet.cell(row, 10).value) == "Photo No.":
+            rows.append(row)
+    return rows
+
+
+def rectification_header_rows(sheet: Any) -> list[int]:
+    rows: list[int] = []
+    for row in range(1, sheet.max_row + 1):
+        left = cell_text(sheet.cell(row, 2).value) or cell_text(sheet.cell(row, 3).value)
+        right = cell_text(sheet.cell(row, 10).value)
+        if left == "Item needed to improvement" and right == "Results on follow-up action taken":
+            rows.append(row)
+    return rows
+
+
+def hide_rectification_slot(sheet: Any, header_row: int, end_row: int) -> None:
+    for row in range(header_row, end_row + 1):
+        sheet.row_dimensions[row].hidden = True
+        sheet.row_dimensions[row].height = 0
+        for col in range(1, 16):
+            cell = sheet.cell(row, col)
+            if not isinstance(cell, MergedCell):
+                cell.value = None
+                cell.border = Border()
+
+
 def fill_rectification_sheet(
     sheet: Any,
     page_number: int,
@@ -557,36 +605,40 @@ def fill_rectification_sheet(
         if not isinstance(sheet[cell_ref], MergedCell):
             sheet[cell_ref] = value
 
-    rect_photo_rows = [19, 40, 61, 82]
-    rect_rows = [20, 41, 62, 83]
-    rect_issue_rows = [21, 42, 63, 84]
+    rect_photo_rows = rectification_photo_rows(sheet)
+    header_rows = rectification_header_rows(sheet)
     start_index = page_number * ITEMS_PER_RECTIFICATION_SHEET
 
-    for local_index, row in enumerate(rect_rows):
+    for local_index, photo_row in enumerate(rect_photo_rows):
         global_index = start_index + local_index
-        photo_row = rect_photo_rows[local_index]
-        issue_row = rect_issue_rows[local_index]
+        location_row = photo_row + 1
+        issue_row = photo_row + 2
         if global_index >= len(issues):
-            for ref in (f"D{photo_row}", f"L{photo_row}", f"D{row}", f"L{row}", f"D{issue_row}", f"L{issue_row}"):
+            header_row = header_rows[local_index] if local_index < len(header_rows) else max(1, photo_row - 16)
+            next_header = header_rows[local_index + 1] if local_index + 1 < len(header_rows) else sheet.max_row + 1
+            hide_rectification_slot(sheet, header_row, next_header - 1)
+            for ref in (f"D{photo_row}", f"L{photo_row}", f"D{location_row}", f"L{location_row}", f"D{issue_row}", f"L{issue_row}"):
                 set_value(ref, None)
             continue
         location = location_base(locations[global_index]) if global_index < len(locations) else ""
         set_value(f"D{photo_row}", global_index + 1)
         set_value(f"L{photo_row}", global_index + 1)
-        set_value(f"D{row}", location)
-        set_value(f"L{row}", location)
+        set_value(f"D{location_row}", location)
+        set_value(f"L{location_row}", location)
         set_value(f"D{issue_row}", issues[global_index])
         set_value(f"L{issue_row}", actions[global_index])
 
     sheet._images = []
     for local_index, slot in enumerate(template_before_slots):
         global_index = start_index + local_index
-        source = before_photos[global_index] if global_index < len(issues) and global_index < len(before_photos) else None
-        sheet.add_image(replacement_image(source, slot))
+        if global_index < len(issues):
+            source = before_photos[global_index] if global_index < len(before_photos) else None
+            sheet.add_image(replacement_image(source, slot))
     for local_index, slot in enumerate(template_after_slots):
         global_index = start_index + local_index
-        source = after_photos[global_index] if global_index < len(issues) else None
-        sheet.add_image(replacement_image(source, slot))
+        if global_index < len(issues):
+            source = after_photos[global_index] if global_index < len(after_photos) else None
+            sheet.add_image(replacement_image(source, slot))
 
 
 def create_walk_excel(
@@ -612,9 +664,9 @@ def create_walk_excel(
     if not template.exists():
         raise FileNotFoundError(f"Missing Excel template: {template}")
 
-    report_no = find_report_no(date)
     out_dir = out_dir or DEFAULT_OUTPUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
+    report_no = find_report_no(date, [WALK_DIR, out_dir])
     out_path = out_dir / f"Site Safety and Environment Walk No.{report_no}({date_label(date)}).xlsx"
 
     inspect_date = parse_date(date)

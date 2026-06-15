@@ -34,6 +34,11 @@ Date: 2026-06-15
 - GitHub should stay code/config only. Do not push secrets, outputs, or photos.
 
 ## Recent Fixes
+- Updated `weekly-safety-walk` skill with the latest workflow fixes: output-folder report sequencing, template-detected Cover date/signature rows, template-detected Rectification photo rows, hidden unused photo blocks, and final verification checks.
+- Fixed report number sequencing for local output runs: `find_report_no()` now considers the target output directory, so `20260611` follows `20260604` as No.84.
+- Fixed `20260604` manual photo mapping: issue 1 now uses `105503 -> 105449`; issue 2 now uses `105303 -> 105325`.
+- Fixed Cover sheet signature/date placement by detecting the template date rows instead of writing to fixed rows; duplicate signer labels and stray date rows are cleared.
+- Fixed Rectification sheet filling by detecting each template's `Photo No.` rows; this fixes bi-weekly templates with different row offsets and hides unused blank photo blocks.
 - Removed timestamp-split fallback from `build_local_ha_report.py`; unresolved issues now become `needs-review` and require visual mapping before final output.
 - Updated the `weekly-safety-walk` skill to require Codex to inspect issue/action text and photo contents instead of relying on photo time order.
 - Added `Photo\20260528\photo_mapping.json` so No.82 uses the correct per-issue before/after photo pairs.
@@ -48,8 +53,21 @@ Date: 2026-06-15
 - Bi-weekly uses `Patrick, P. T. KO / CE/T243` for the extra signature block.
 
 ## Verification
+- Final skill static validation passed with fallback frontmatter checks: `name,description` only, description length 341 chars, required verification phrases present.
+- `quick_validate.py` and `package_skill.py` are blocked on this machine by missing Python module `yaml`; manual fallback validation and manual `.skill` zip packaging were used instead.
+- Packaged final skill at `G:\我的雲端硬碟\Codex-System\skills\weekly-safety-walk.skill`; package contents verified: `SKILL.md` and `agents/openai.yaml`.
+- Fresh rebuilds completed after skill update: `20260604 -> No.83`, `20260611 -> No.84`.
+- `20260604` rebuilt after photo mapping fix; embedded Excel image order verified:
+  `105503 -> 105449`, `105303 -> 105325`.
+- `20260611` rebuilt after Rectification/Cover fixes; embedded Excel image order verified:
+  `110314 -> 110320`, `111522 -> 111636`.
+- `20260611` report number verified as No.84 in `outputs\Test\Site Safety and Environment Walk No.84(11-06-2026).xlsx`; stale No.83 copy for the same date was removed.
+- `20260611` Rectification sheet verified: issue 2 writes to the bi-weekly template's row 41/42/43 block, and unused rows 47-68 are hidden.
+- `20260604` and `20260611` Cover sheets verified: signer labels are on the parenthesized row, duplicate rows are cleared, and date values are on the Date line.
 - Trial run completed for `20260604`.
 - Trial run completed for `20260611`.
+- Local rebuild completed for `20260604` to `outputs\Test\20260604.pdf` and `outputs\Test\Site Safety and Environment Walk No.83(04-06-2026).xlsx`.
+- Local rebuild completed for `20260611` to `outputs\Test\20260611.pdf` and `outputs\Test\Site Safety and Environment Walk No.84(11-06-2026).xlsx`.
 - `20260512` fresh rebuild verified in `outputs\Test`.
 - `20260519` fresh rebuild verified in `outputs\Test`.
 - `20260528` fresh rebuild verified in `outputs\Test`.
@@ -61,8 +79,9 @@ Date: 2026-06-15
 - `20260519` Cover sheet verified: `C27/H27/M27` are blank after regeneration.
 
 ## Shutdown Status
-- Current shutdown prepared after fixing `20260528` No.82 photo placement and Cover inspection table borders.
+- Current shutdown prepared after fixing `20260604` photo placement plus Cover/Rectification/report-number Excel issues for `20260604` and `20260611`, then updating and packaging the `weekly-safety-walk` skill.
 - `build_local_ha_report.py` no longer uses timestamp-split fallback; unresolved photo placement becomes `needs-review`.
 - `weekly-safety-walk` skill confirmed updated in `G:\我的雲端硬碟\Codex-System\skills\weekly-safety-walk\SKILL.md`.
 - Obsidian note confirmed updated at `G:\我的雲端硬碟\secondbrain\Projects\Weekly Safety Walk\工作筆記.md`.
+- Final packaged skill is at `G:\我的雲端硬碟\Codex-System\skills\weekly-safety-walk.skill`.
 - No secrets, photos, generated outputs, Gmail tokens, credentials, logs, or local assistant folders should be staged.
