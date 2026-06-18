@@ -1,6 +1,6 @@
 # Weekly Safety Walk Handoff
 
-Date: 2026-06-15
+Date: 2026-06-19
 
 ## Summary
 - Replaced the Telegram-driven workflow with a local folder-based runner.
@@ -24,6 +24,8 @@ Date: 2026-06-15
 - `20260519.pdf` also regenerated in `outputs\Test`.
 - `20260528` local rebuild completed to `outputs\Test\Site Safety and Environment Walk No.82(28-05-2026).xlsx`.
 - `20260528.pdf` also regenerated in `outputs\Test`.
+- `20260616` local rebuild completed to `outputs\Test\Site Safety and Environment Walk No.85(16-06-2026).xlsx`.
+- `20260616.pdf` also regenerated in `outputs\Test`.
 
 ## Important Notes
 - Gmail remains the source for issue/action text.
@@ -37,6 +39,11 @@ Date: 2026-06-15
 - Updated `weekly-safety-walk` skill with the latest workflow fixes: output-folder report sequencing, template-detected Cover date/signature rows, template-detected Rectification photo rows, hidden unused photo blocks, and final verification checks.
 - Fixed report number sequencing for local output runs: `find_report_no()` now considers the target output directory, so `20260611` follows `20260604` as No.84.
 - Fixed `20260604` manual photo mapping: issue 1 now uses `105503 -> 105449`; issue 2 now uses `105303 -> 105325`.
+- Fixed HA email parsing for combined photo references such as `Photo 1 & 2):`.
+- Fixed local photo collection to accept extensionless JPEG files, covering WhatsApp-style files such as `來自Hei的相片`.
+- Added `Photo\20260616\photo_mapping.json`: issue 1 now uses `IMG-20260617-WA0030.jpg -> 來自Hei的相片`.
+- Added action wording conversion for `should be removed ...` so `20260616` outputs use rectified action text.
+- Updated the `weekly-safety-walk` skill with stricter BEFORE/AFTER photo-placement guardrails: define defect-visible BEFORE versus rectification-visible AFTER, require a one-line evidence note before manual mapping, forbid assumptions from zoom/framing/brightness/file order, ask the user when evidence is ambiguous, and verify regenerated Excel against `photo_mapping.json`.
 - Fixed Cover sheet signature/date placement by detecting the template date rows instead of writing to fixed rows; duplicate signer labels and stray date rows are cleared.
 - Fixed Rectification sheet filling by detecting each template's `Photo No.` rows; this fixes bi-weekly templates with different row offsets and hides unused blank photo blocks.
 - Removed timestamp-split fallback from `build_local_ha_report.py`; unresolved issues now become `needs-review` and require visual mapping before final output.
@@ -68,6 +75,14 @@ Date: 2026-06-15
 - Trial run completed for `20260611`.
 - Local rebuild completed for `20260604` to `outputs\Test\20260604.pdf` and `outputs\Test\Site Safety and Environment Walk No.83(04-06-2026).xlsx`.
 - Local rebuild completed for `20260611` to `outputs\Test\20260611.pdf` and `outputs\Test\Site Safety and Environment Walk No.84(11-06-2026).xlsx`.
+- Local rebuild completed for `20260616` to `outputs\Test\20260616.pdf` and `outputs\Test\Site Safety and Environment Walk No.85(16-06-2026).xlsx`.
+- `20260616` embedded Excel image order verified:
+  `IMG-20260617-WA0030.jpg -> 來自Hei的相片`.
+- `20260616` Gmail action text verified:
+  `The bucket at the upper wailing of trench has been removed for safety of work at height.`
+- `weekly-safety-walk.skill` repackaged after BEFORE/AFTER guardrail update; package contents verified: `SKILL.md` and `agents/openai.yaml`.
+- Skill quick validation remains blocked by missing Python module `yaml`; fallback frontmatter and packaged-content checks passed.
+- Python compile check passed for `ha_walk_excel.py`, `build_local_ha_report.py`, and `gmail_ha_actions.py`.
 - `20260512` fresh rebuild verified in `outputs\Test`.
 - `20260519` fresh rebuild verified in `outputs\Test`.
 - `20260528` fresh rebuild verified in `outputs\Test`.
@@ -79,7 +94,7 @@ Date: 2026-06-15
 - `20260519` Cover sheet verified: `C27/H27/M27` are blank after regeneration.
 
 ## Shutdown Status
-- Current shutdown prepared after fixing `20260604` photo placement plus Cover/Rectification/report-number Excel issues for `20260604` and `20260611`, then updating and packaging the `weekly-safety-walk` skill.
+- Current shutdown prepared after running `20260616`, fixing combined HA photo-reference parsing, supporting extensionless JPEG collection, adding the reviewed `20260616` photo mapping, and strengthening the skill's BEFORE/AFTER placement rules.
 - `build_local_ha_report.py` no longer uses timestamp-split fallback; unresolved photo placement becomes `needs-review`.
 - `weekly-safety-walk` skill confirmed updated in `G:\我的雲端硬碟\Codex-System\skills\weekly-safety-walk\SKILL.md`.
 - Obsidian note confirmed updated at `G:\我的雲端硬碟\secondbrain\Projects\Weekly Safety Walk\工作筆記.md`.

@@ -302,7 +302,12 @@ def search_ha_message(date: str) -> dict[str, Any] | None:
 
 def extract_issues(body: str) -> list[str]:
     normalized = re.sub(r"\r\n?", "\n", body)
-    normalized = re.sub(r"\s+(Photo\s*\d+\)\s*:)", r"\n\1", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(
+        r"\s+(Photo\s*\d+(?:\s*(?:&|and|-|to)\s*\d+)?\)\s*:)",
+        r"\n\1",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     issues: list[tuple[int, str]] = []
     current_number: int | None = None
     current_lines: list[str] = []
@@ -322,7 +327,11 @@ def extract_issues(body: str) -> list[str]:
         if not line:
             continue
 
-        photo_match = re.match(r"^Photo\s*(\d+)\)\s*:\s*(.*)$", line, re.IGNORECASE)
+        photo_match = re.match(
+            r"^Photo\s*(\d+)(?:\s*(?:&|and|-|to)\s*\d+)?\)\s*:\s*(.*)$",
+            line,
+            re.IGNORECASE,
+        )
         if photo_match:
             flush()
             current_number = int(photo_match.group(1))
@@ -334,7 +343,7 @@ def extract_issues(body: str) -> list[str]:
             break
 
         if current_number is not None:
-            if line.endswith(":") and not re.match(r"^Photo\s*\d+\)", line, re.IGNORECASE):
+            if line.endswith(":") and not re.match(r"^Photo\s*\d+", line, re.IGNORECASE):
                 flush()
                 continue
             current_lines.append(line)
@@ -373,6 +382,7 @@ def action_from_issue(issue: str) -> str:
         (" should be properly covered with ", " has been properly covered with "),
         (" should be covered with ", " has been covered with "),
         (" should be removed from site", " has been removed from site"),
+        (" should be removed ", " has been removed "),
     ]
     converted = text
     for old, new in replacements:
@@ -406,17 +416,22 @@ def fetch_ha_details(date: str) -> dict[str, Any]:
         raise RuntimeError(f"No Photo issue text found in HA email for {gmail_date(date)}.")
 
     normalized = re.sub(r"\r\n?", "\n", body)
-    normalized = re.sub(r"\s+(Photo\s*\d+\)\s*:)", r"\n\1", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(
+        r"\s+(Photo\s*\d+(?:\s*(?:&|and|-|to)\s*\d+)?\)\s*:)",
+        r"\n\1",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     current_location = ""
     locations: list[str] = []
     for raw_line in normalized.splitlines():
         line = " ".join(raw_line.strip().split())
         if not line:
             continue
-        if line.endswith(":") and not re.match(r"^Photo\s*\d+\)", line, re.IGNORECASE):
+        if line.endswith(":") and not re.match(r"^Photo\s*\d+", line, re.IGNORECASE):
             current_location = line.rstrip(":")
             continue
-        if re.match(r"^Photo\s*\d+\)\s*:", line, re.IGNORECASE):
+        if re.match(r"^Photo\s*\d+(?:\s*(?:&|and|-|to)\s*\d+)?\)\s*:", line, re.IGNORECASE):
             locations.append(current_location)
 
     time_match = re.search(

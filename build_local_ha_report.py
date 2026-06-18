@@ -55,11 +55,21 @@ def detect_walk_type(date: str) -> str:
 def collect_photos(job_dir: Path) -> list[Path]:
     if not job_dir.exists():
         raise FileNotFoundError(f"Missing photo folder: {job_dir}")
-    photos = [
-        path
-        for path in job_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in VALID_IMAGE_SUFFIXES
-    ]
+    photos: list[Path] = []
+    for path in job_dir.iterdir():
+        if not path.is_file():
+            continue
+        if path.suffix.lower() in VALID_IMAGE_SUFFIXES:
+            photos.append(path)
+            continue
+        if path.suffix:
+            continue
+        try:
+            with Image.open(path) as image:
+                image.verify()
+        except Exception:
+            continue
+        photos.append(path)
     if not photos:
         raise FileNotFoundError(f"No photos found in: {job_dir}")
 
